@@ -1,4 +1,8 @@
-dashscope==0.1.1
-langchain==0.3.1
-langchain-community==0.3.1
-numpy==1.26.4
+dashscope==1.23.6
+langchain==0.3.26
+langchain-community==0.3.26
+chromadb==1.0.13
+rank-bm25==0.2.2
+numpy==2.0.2
+jieba==0.42.1
+

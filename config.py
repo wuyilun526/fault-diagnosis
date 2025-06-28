@@ -209,6 +209,20 @@ HISTORICAL_DATA = [
         "solution": "1. 检查日志收集服务\n2. 验证存储空间\n3. 重启收集进程",
         "source": "production_incident_025",
         "timestamp": "2024-05-15T13:45:00"
+    },
+    {
+        "symptom": "供应链接口成功率下跌, QPS下跌, 依赖下游接口无异常",
+        "category": "该接口前端发布异常",
+        "solution": "1. 和前端确认是否发布\n2. 回滚发布",
+        "source": "production_incident_026",
+        "timestamp": "2024-05-15T13:45:00"
+    },
+    {
+        "symptom": "支付接口成功率下跌, QPS下跌, 依赖下游接口无异常, 依赖的DB慢查询增加",
+        "category": "该接口依赖的DB异常",
+        "solution": "1. 确认DB异常\n2. 优化DB查询",
+        "source": "production_incident_027",
+        "timestamp": "2024-05-15T13:45:00"
     }
 ]
 
@@ -364,6 +378,12 @@ TEST_CASES = [
         "metrics": "日志收集延迟，最新日志缺失",
         "logs": "Log collection failed错误",
         "expected_category": "日志收集故障"
+    },
+    {
+        "desc": "供应链接口A成功率下跌",
+        "metrics": "接口A的QPS下跌, 下游依赖接口没有指标异常",
+        "logs": "",
+        "expected_category": ""
     }
 ]
 

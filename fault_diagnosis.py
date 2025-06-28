@@ -9,6 +9,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_community.retrievers import BM25Retriever
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.embeddings import Embeddings
+import jieba
 
 # 导入配置文件
 from config import SYSTEM_CONFIG, HISTORICAL_DATA, TEST_CASES, validate_config
@@ -31,6 +32,30 @@ class CustomEmbeddings(Embeddings):
         self.next_id = 1
         self.embeddings_cache = {}
 
+    def _preprocess_text(self, text):
+        """文本预处理"""
+        # 1. 标准化
+        text = text.lower()
+        
+        # 2. 保留重要标点符号
+        text = text.replace('，', ',').replace('。', '.').replace('：', ':')
+        
+        # 3. 移除多余空格
+        text = ' '.join(text.split())
+        
+        return text
+
+    def _segment_chinese_text(self, text):
+        """中文文本分词"""
+        try:
+            words = list(jieba.cut(text))
+            # 过滤空字符串
+            words = [word.strip() for word in words if word.strip()]
+            return words
+        except Exception as e:
+            print(f"中文分词错误: {e}")
+            return []
+
     def embed_text(self, text):
         """生成文本嵌入 - 改进版本"""
         # 如果已经缓存过，直接返回
@@ -40,8 +65,10 @@ class CustomEmbeddings(Embeddings):
         # 文本预处理：标准化和分词
         processed_text = self._preprocess_text(text)
         
+        # 使用中文分词
+        words = self._segment_chinese_text(processed_text)
+        
         # 为每个单词创建ID并生成随机嵌入
-        words = processed_text.split()
         word_ids = []
         for word in words:
             if word not in self.vocab:
@@ -76,19 +103,6 @@ class CustomEmbeddings(Embeddings):
         # 缓存结果
         self.embeddings_cache[text] = embeddings
         return embeddings
-
-    def _preprocess_text(self, text):
-        """文本预处理"""
-        # 1. 标准化
-        text = text.lower()
-        
-        # 2. 保留重要标点符号
-        text = text.replace('，', ',').replace('。', '.').replace('：', ':')
-        
-        # 3. 移除多余空格
-        text = ' '.join(text.split())
-        
-        return text
 
     def embed_documents(self, texts):
         """实现Langchain所需的接口方法 - 批量嵌入文档"""
@@ -168,12 +182,20 @@ class KnowledgeBaseBuilder:
 
     def _extract_keywords(self, text):
         """提取关键词"""
-        # 简单的关键词提取
-        keywords = []
-        important_words = ['接口', '成功率', '下降', '跌落', '依赖', '下游', 'DB', '慢查询', '超时', '错误']
+        # 使用中文分词提取关键词
+        words = self.embedder._segment_chinese_text(text.lower())
         
-        for word in important_words:
-            if word in text:
+        # 定义重要关键词
+        important_words = [
+            '接口', '成功率', '下降', '跌落', '依赖', '下游', 'db', '慢查询', '超时', '错误',
+            '数据库', '连接', '内存', 'cpu', '线程', '缓存', '网络', '配置', '部署', '监控',
+            '告警', '日志', '安全', '证书', '攻击', '流量', 'qps', '响应', '延迟', '异常'
+        ]
+        
+        # 提取匹配的关键词
+        keywords = []
+        for word in words:
+            if word in important_words:
                 keywords.append(word)
         
         return keywords
@@ -216,7 +238,7 @@ class SimplifiedRetriever:
         try:
             vector_results = self.vector_db.similarity_search_with_score(
                 query, 
-                k=self.config["top_k"] * 3  # 获取更多候选
+                k=self.config["top_k"]
             )
             vector_candidates = [(score, doc.page_content, doc.metadata) for doc, score in vector_results]
         except Exception as e:
