@@ -27,20 +27,23 @@ class CustomEmbeddings(Embeddings):
     """符合Langchain接口的自定义嵌入实现"""
     def __init__(self):
         super().__init__()
-        # 创建一个简单的虚拟嵌入模型
-        self.embedding_size = 128  # 更小的嵌入维度
+        # 使用更大的嵌入维度以提高表达能力
+        self.embedding_size = 384  # 增加维度
         self.vocab = {}
         self.next_id = 1
         self.embeddings_cache = {}
 
     def embed_text(self, text):
-        """生成文本嵌入"""
+        """生成文本嵌入 - 改进版本"""
         # 如果已经缓存过，直接返回
         if text in self.embeddings_cache:
             return self.embeddings_cache[text]
 
+        # 文本预处理：标准化和分词
+        processed_text = self._preprocess_text(text)
+        
         # 为每个单词创建ID并生成随机嵌入
-        words = text.split()
+        words = processed_text.split()
         word_ids = []
         for word in words:
             if word not in self.vocab:
@@ -48,13 +51,25 @@ class CustomEmbeddings(Embeddings):
                 self.next_id += 1
             word_ids.append(self.vocab[word])
 
-        # 生成一个简单的平均嵌入向量
+        # 生成更复杂的嵌入向量
         embeddings = np.zeros(self.embedding_size)
+        
+        # 1. 词级别嵌入
         for word_id in word_ids:
             np.random.seed(word_id)  # 保证一致性
-            embeddings += np.random.randn(self.embedding_size)
-        embeddings /= len(word_ids)
-
+            word_embedding = np.random.randn(self.embedding_size)
+            embeddings += word_embedding
+        
+        # 2. 考虑词序信息
+        for i, word_id in enumerate(word_ids):
+            np.random.seed(word_id + i * 1000)  # 位置编码
+            position_embedding = np.random.randn(self.embedding_size) * 0.1
+            embeddings += position_embedding
+        
+        # 3. 考虑文本长度
+        length_factor = min(len(words) / 10.0, 1.0)  # 归一化长度
+        embeddings *= (1 + length_factor * 0.2)
+        
         # 归一化向量
         norm = np.linalg.norm(embeddings)
         if norm > 0:
@@ -63,6 +78,19 @@ class CustomEmbeddings(Embeddings):
         # 缓存结果
         self.embeddings_cache[text] = embeddings
         return embeddings
+
+    def _preprocess_text(self, text):
+        """文本预处理"""
+        # 1. 标准化
+        text = text.lower()
+        
+        # 2. 保留重要标点符号
+        text = text.replace('，', ',').replace('。', '.').replace('：', ':')
+        
+        # 3. 移除多余空格
+        text = ' '.join(text.split())
+        
+        return text
 
     def embed_documents(self, texts):
         """实现Langchain所需的接口方法 - 批量嵌入文档"""
@@ -90,16 +118,29 @@ class KnowledgeBaseBuilder:
         metadatas = []
 
         for record in historical_data:
-            # 构建文档描述 = 现象 + 分类 + 措施 
-            text = f"故障现象: {record['symptom']}\n分类: {record['category']}\n措施: {record['solution']}"
-            chunks = self.text_splitter.split_text(text)
+            # 构建更结构化的文档描述
+            structured_text = self._build_structured_document(record)
             
-            for chunk in chunks:
+            # 分块处理
+            chunks = self.text_splitter.split_text(structured_text)
+            
+            for i, chunk in enumerate(chunks):
                 documents.append(chunk)
+                
+                # 提取关键词并转换为字符串
+                symptom_keywords = self._extract_keywords(record["symptom"])
+                solution_keywords = self._extract_keywords(record["solution"])
+                semantic_tags = self._generate_semantic_tags(record)
+                
                 metadatas.append({
                     "source": record.get("source", "unknown"),
                     "timestamp": record.get("timestamp", datetime.now().isoformat()),
-                    "category": record["category"]
+                    "category": record["category"],
+                    "chunk_id": str(i),  # 转换为字符串
+                    "total_chunks": str(len(chunks)),  # 转换为字符串
+                    "symptom_keywords": ", ".join(symptom_keywords) if symptom_keywords else "",  # 转换为字符串
+                    "solution_keywords": ", ".join(solution_keywords) if solution_keywords else "",  # 转换为字符串
+                    "semantic_tags": ", ".join(semantic_tags) if semantic_tags else ""  # 转换为字符串
                 })
 
         # 创建向量数据库 
@@ -110,6 +151,53 @@ class KnowledgeBaseBuilder:
             embedding=self.embedder
         )
         return vector_db, documents
+
+    def _build_structured_document(self, record):
+        """构建结构化的文档内容"""
+        # 使用更清晰的语义结构
+        structured_parts = [
+            f"故障现象: {record['symptom']}",
+            f"故障分类: {record['category']}", 
+            f"解决方案: {record['solution']}"
+        ]
+        
+        # 添加语义标签
+        semantic_tags = self._generate_semantic_tags(record)
+        if semantic_tags:
+            structured_parts.append(f"语义标签: {', '.join(semantic_tags)}")
+        
+        return "\n".join(structured_parts)
+
+    def _extract_keywords(self, text):
+        """提取关键词"""
+        # 简单的关键词提取
+        keywords = []
+        important_words = ['接口', '成功率', '下降', '跌落', '依赖', '下游', 'DB', '慢查询', '超时', '错误']
+        
+        for word in important_words:
+            if word in text:
+                keywords.append(word)
+        
+        return keywords
+
+    def _generate_semantic_tags(self, record):
+        """生成语义标签"""
+        tags = []
+        
+        # 基于症状生成标签
+        symptom = record['symptom'].lower()
+        if '成功率' in symptom and '下降' in symptom:
+            tags.append('成功率异常')
+        if '依赖' in symptom or '下游' in symptom:
+            tags.append('依赖链问题')
+        if 'db' in symptom or '数据库' in symptom:
+            tags.append('数据库问题')
+        if '超时' in symptom:
+            tags.append('超时问题')
+        if '内存' in symptom:
+            tags.append('内存问题')
+        
+        return tags
 
 # ===================== 2. 简化检索模块 =====================
 class SimplifiedRetriever:
@@ -125,29 +213,123 @@ class SimplifiedRetriever:
         self.bm25_retriever.k = config["top_k"]
 
     def retrieve(self, query):
-        """执行混合检索（简化版本）"""
-        # 向量检索
+        """执行混合检索（通用语义版本）"""
+        # 1. 向量检索 - 使用更大的候选集
         try:
-            vector_results = self.vector_db.similarity_search(query, k=self.config["top_k"])
-            vector_contents = [doc.page_content for doc in vector_results]
+            vector_results = self.vector_db.similarity_search_with_score(
+                query, 
+                k=self.config["top_k"] * 3  # 获取更多候选
+            )
+            vector_candidates = [(score, doc.page_content, doc.metadata) for doc, score in vector_results]
         except Exception as e:
             print(f"向量检索错误: {e}")
-            vector_contents = []
+            vector_candidates = []
 
-        # BM25检索
+        # 2. BM25检索
         try:
             bm25_results = self.bm25_retriever.get_relevant_documents(query)
-            bm25_contents = [doc.page_content for doc in bm25_results]
+            bm25_candidates = [(0.5, doc.page_content, {}) for doc in bm25_results]  # 默认分数
         except Exception as e:
             print(f"BM25检索错误: {e}")
-            bm25_contents = []
+            bm25_candidates = []
 
-        # 融合结果并去重
-        all_contents = list(set(vector_contents + bm25_contents))
-        print(f"检索到 {len(all_contents)} 个相关文档片段")
+        print(f"向量检索候选: {len(vector_candidates)} 个")
+        print(f"BM25检索候选: {len(bm25_candidates)} 个")
 
-        # 简单返回top_k
-        return all_contents[:self.config["top_k"]]
+        # 3. 融合候选集
+        all_candidates = self._merge_candidates(vector_candidates, bm25_candidates)
+        
+        # 4. 重新排序和去重
+        final_results = self._rerank_and_deduplicate(query, all_candidates)
+        
+        print(f"最终检索到 {len(final_results)} 个相关文档片段")
+        
+        return final_results
+
+    def _merge_candidates(self, vector_candidates, bm25_candidates):
+        """融合向量检索和BM25检索的候选结果"""
+        merged = {}
+        
+        # 添加向量检索结果
+        for score, content, metadata in vector_candidates:
+            if content not in merged:
+                merged[content] = {
+                    'score': score,
+                    'metadata': metadata,
+                    'sources': ['vector']
+                }
+        
+        # 添加BM25检索结果，如果已存在则提升分数
+        for score, content, metadata in bm25_candidates:
+            if content in merged:
+                # 如果两个检索器都找到了，提升分数
+                merged[content]['score'] = merged[content]['score'] * 1.2
+                merged[content]['sources'].append('bm25')
+            else:
+                merged[content] = {
+                    'score': score,
+                    'metadata': metadata,
+                    'sources': ['bm25']
+                }
+        
+        return merged
+
+    def _rerank_and_deduplicate(self, query, candidates):
+        """重新排序和去重"""
+        # 转换为列表并排序
+        candidate_list = []
+        for content, info in candidates.items():
+            # 计算最终分数
+            final_score = self._calculate_final_score(query, content, info)
+            candidate_list.append((final_score, content))
+        
+        # 按分数降序排序
+        candidate_list.sort(key=lambda x: x[0], reverse=True)
+        
+        # 去重并返回top_k
+        seen_contents = set()
+        final_results = []
+        
+        for score, content in candidate_list:
+            if content not in seen_contents and len(final_results) < self.config["top_k"]:
+                final_results.append(content)
+                seen_contents.add(content)
+        
+        return final_results
+
+    def _calculate_final_score(self, query, content, info):
+        """计算最终相似度分数"""
+        base_score = info['score']
+        
+        # 1. 基础分数
+        final_score = base_score
+        
+        # 2. 多源检索奖励（如果多个检索器都找到了）
+        if len(info['sources']) > 1:
+            final_score *= 1.1
+        
+        # 3. 元数据匹配奖励
+        if 'metadata' in info and info['metadata']:
+            metadata = info['metadata']
+            
+            # 检查关键词匹配
+            query_lower = query.lower()
+            if 'symptom_keywords' in metadata and metadata['symptom_keywords']:
+                # 将字符串关键词分割回列表
+                keywords = [kw.strip() for kw in metadata['symptom_keywords'].split(',') if kw.strip()]
+                keyword_matches = sum(1 for keyword in keywords 
+                                    if keyword.lower() in query_lower)
+                final_score += keyword_matches * 0.1
+            
+            # 检查语义标签匹配（如果有的话）
+            if 'semantic_tags' in metadata and metadata['semantic_tags']:
+                # 将字符串标签分割回列表
+                tags = [tag.strip() for tag in metadata['semantic_tags'].split(',') if tag.strip()]
+                tag_matches = sum(1 for tag in tags 
+                                if tag.lower() in query_lower)
+                final_score += tag_matches * 0.2
+        
+        return final_score
 
 # ===================== 3. RAG推理模块（适配阿里API） =====================
 class AliyunLLMChain:
@@ -189,10 +371,11 @@ class FaultDiagnosisSystem:
         {context}
 
         请按以下结构输出分析结果：
-        1. 故障类别: 从历史案例中选择最匹配的分类
-        2. 诊断依据: 结合当前告警和历史案例相似点分析
-        3. 紧急措施: 建议的第一步操作
-        4. 备注: 任何额外注意事项
+        1. 故障类别: 从历史案例中选择最匹配的分类，如果和历史案例的分类匹配度不高，则另外给出简洁的故障类别
+        2. 故障对象: 如果定位到故障根因对象，请输出故障根因对象
+        3. 诊断依据: 结合当前告警和历史案例相似点分析
+        4. 紧急措施: 建议的第一步操作
+        5. 备注: 任何额外注意事项
         """
 
     def build_prompt(self, alert_desc, alert_metrics, alert_logs, context):
@@ -265,6 +448,16 @@ if __name__ == "__main__":
             "symptom": "接口流量超过阈值95%，TCP重传率增加300%",
             "category": "网络阻塞",
             "solution": "1. 扩容带宽\n2. 优化流量调度\n3. 分析异常流量源"
+        },
+        {
+            "symptom": "接口成功率下降，下游依赖的接口成功率下降，下游依赖接口服务的DB慢查询增加",
+            "category": "接口依赖问题",
+            "solution": "1. 检查下游依赖接口\n2. 优化DB查询\n3. 增加缓存"
+        },
+        {
+            "symptom": "接口QPS下降，接口成功率不变，上游QPS也存在跌落", 
+            "category": "上游QPS跌落异常",
+            "solution": "1. 通知上游服务的SRE，确认是否存在流量控制"
         }
     ]
 
@@ -307,11 +500,22 @@ if __name__ == "__main__":
             "desc": "服务内存使用持续增长",
             "metrics": "JVM内存占用每小时增长3%，GC频率增加",
             "logs": "观察到频繁的Full GC日志"
+        },
+        {
+            "desc": "当前告警接口A存在QPS下降，接口A的成功率无异常，接口A上游接口B存在QPS跌落，接口B上游接口C存在QPS跌落",
+            "metrics": "",
+            "logs": ""
+        },
+        {
+            "desc": "接口A成功率下降，下游依赖的接口B成功率下降，接口B依赖的下游接口C成功率跌落，接口C服务的DB慢查询增加",
+            "metrics": "",
+            "logs": ""
         }
     ]
 
     # 5. 执行诊断
     for i, test_alert in enumerate(test_cases):
+        print("=" * 160)
         print(f"\n===== 测试用例 {i+1} =====")
         print(f"告警描述: {test_alert['desc']}")
         print(f"相关指标: {test_alert['metrics']}")
@@ -327,6 +531,6 @@ if __name__ == "__main__":
 
         print("\n===== 诊断结果 =====")
         print(result)
-        print("=" * 100)
+        print("=" * 160)
 
     print("所有测试用例执行完毕")
