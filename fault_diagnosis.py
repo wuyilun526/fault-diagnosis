@@ -381,14 +381,14 @@ class FaultDiagnosisSystem:
         # 格式化历史案例
         context_str = "\n".join([f"📝 {doc}" for doc in context])
  
-        print("\n======= 提示内容 =======")
-        print(self.prompt_template.format(
-            alert_desc=alert_desc,
-            alert_metrics=alert_metrics,
-            alert_logs=alert_logs,
-            context=context_str
-        ))
-        print("=" * 40)
+        # print("\n======= 提示内容 =======")
+        # print(self.prompt_template.format(
+        #     alert_desc=alert_desc,
+        #     alert_metrics=alert_metrics,
+        #     alert_logs=alert_logs,
+        #     context=context_str
+        # ))
+        # print("=" * 40)
 
         return self.prompt_template.format(
             alert_desc=alert_desc,
